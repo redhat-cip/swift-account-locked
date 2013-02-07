@@ -2,7 +2,7 @@
 :Maintainer: Chmouel Boudjnah <chmouel@enovance.com>
 :Issues: https://github.com/enovance/swift-account-locked/issues
 :Source Code: https://github.com/enovance/swift-account-locked
-:License: BSD
+:License: Apache
 :Version: 0.1
 
 ====================
