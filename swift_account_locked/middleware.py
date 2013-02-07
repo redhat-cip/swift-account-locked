@@ -72,8 +72,10 @@ class AccountAccessMiddleware(object):
         self.locked_header = conf.get('locked_header', 'locked')
         self.recheck_account_existence = conf.get('recheck_account_existence',
                                                   60)
-        self.denied_methods = conf.get('denied_methods'.split(','),
-                                       ("PUT", "DELETE", "POST"))
+        default_denied_method = ("PUT", "DELETE", "POST")
+        self.denied_methods = conf.get('denied_methods', default_denied_method)
+        if self.denied_methods is str:
+            self.denied_methods = self.denied_methods.split(',')
 
     def deny(self, req):
         return HTTPForbidden(request=req)
