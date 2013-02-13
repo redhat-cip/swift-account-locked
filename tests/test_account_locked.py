@@ -18,6 +18,7 @@ __author__ = "Chmouel Boudjnah <chmouel@enovance.com>"
 import unittest
 
 import swift_account_locked.middleware as middleware
+import swift.proxy.controllers.base as swproxy
 
 from swift.common.swob import Response, Request
 
@@ -55,11 +56,13 @@ class FakeResponse(object):
 
 
 class FakeRequest(object):
-    def __init__(self, env, method, path):
+    def __init__(self, env, method, path, swift_source=None):
         if path.endswith('allowed'):
             self.headers = {'x-account-meta-locked': 'false'}
         elif path.endswith('denied'):
             self.headers = {'x-account-meta-locked': 'true'}
+        elif path.endswith('denied_other'):
+            self.headers = {'x-account-meta-other': 'true'}
         else:
             self.headers = {}
 
@@ -80,12 +83,21 @@ class TestAccountAccessMode(unittest.TestCase):
         }
         self.test_default = middleware.filter_factory(self.conf)(FakeApp())
 
+    def test_denied_method_conf(self):
+        app = FakeApp()
+        test = middleware.filter_factory({})(app)
+        self.assertEquals(test.denied_methods, ("PUT", "DELETE", "POST"))
+        test = middleware.filter_factory({'denied_methods': "GET"})(app)
+        self.assertEquals(test.denied_methods, ["GET"])
+        test = middleware.filter_factory({'denied_methods': "GET,FOO"})(app)
+        self.assertEquals(test.denied_methods, ["GET", "FOO"])
+
     def test_allowed_to_update_when_locked(self):
         req = self._make_request(
             environ={
                 'REQUEST_METHOD': 'POST',
             },
-            headers={'X-Account-Meta-Locked':  'true'})
+            headers={'X-Account-Meta-Locked': 'true'})
 
         resp = req.get_response(self.test_default)
         self.assertTrue('swift.authorize' not in resp.environ)
@@ -95,7 +107,7 @@ class TestAccountAccessMode(unittest.TestCase):
             environ={
                 'REQUEST_METHOD': 'GET',
             },
-            headers={'X-Container-Meta-Locked':  'true'})
+            headers={'X-Container-Meta-Locked': 'true'})
 
         resp = req.get_response(self.test_default)
         self.assertTrue('swift.authorize' not in resp.environ)
@@ -132,25 +144,59 @@ class TestAccountAccessMode(unittest.TestCase):
         self.assertTrue('swift.authorize' not in resp.environ)
 
     def test_allowed_without_cache(self):
-        middleware.make_pre_authed_request = FakeRequest
+        accname = 'acc_allowed'
+        swproxy.make_pre_authed_request = FakeRequest
         req = self._make_request(
             environ={
                 'REQUEST_METHOD': 'POST',
-                'PATH_INFO': '/v1/acc_allowed',
+                'PATH_INFO': '/v1/%s' % (accname),
                 'swift.cache': FakeCache({}),
             })
         resp = req.get_response(self.test_default)
+        key = swproxy.get_account_memcache_key(accname)
+        memcache_key = resp.environ.get("swift.%s" % key)
+        self.assertTrue('meta' in memcache_key)
+        self.assertEquals(memcache_key['meta']['locked'],
+                          'false')
         self.assertTrue('swift.authorize' not in resp.environ)
 
     def test_deny_without_cache(self):
-        middleware.make_pre_authed_request = FakeRequest
+        accname = 'acc_denied'
+        swproxy.make_pre_authed_request = FakeRequest
         req = self._make_request(
             environ={
                 'REQUEST_METHOD': 'POST',
-                'PATH_INFO': '/v1/acc_denied',
+                'PATH_INFO': '/v1/%s' % (accname),
                 'swift.cache': FakeCache({}),
             })
         resp = req.get_response(self.test_default)
+        key = swproxy.get_account_memcache_key(accname)
+        memcache_key = resp.environ.get("swift.%s" % key)
+        self.assertTrue('meta' in memcache_key)
+        self.assertEquals(memcache_key['meta']['locked'],
+                          'true')
+        self.assertTrue('swift.authorize' in resp.environ)
+        self.assertEquals(resp.environ['swift.authorize'],
+                          self.test_default.deny)
+
+    def test_deny_other_header_without_cache(self):
+        accname = 'acc_denied_other'
+        other_header = 'other'
+        conf = {'locked_header': other_header}
+        self.test_default = middleware.filter_factory(conf)(FakeApp())
+        swproxy.make_pre_authed_request = FakeRequest
+        req = self._make_request(
+            environ={
+                'REQUEST_METHOD': 'POST',
+                'PATH_INFO': '/v1/%s' % (accname),
+                'swift.cache': FakeCache({}),
+            })
+        resp = req.get_response(self.test_default)
+        key = swproxy.get_account_memcache_key(accname)
+        memcache_key = resp.environ.get("swift.%s" % key)
+        self.assertTrue('meta' in memcache_key)
+        self.assertTrue(other_header in memcache_key['meta'])
+        self.assertEquals(memcache_key['meta'][other_header], 'true')
         self.assertTrue('swift.authorize' in resp.environ)
         self.assertEquals(resp.environ['swift.authorize'],
                           self.test_default.deny)

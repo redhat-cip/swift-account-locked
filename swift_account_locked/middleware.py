@@ -15,53 +15,10 @@ __author__ = "Chmouel Boudjnah <chmouel@enovance.com>"
 #    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
 #    License for the specific language governing permissions and limitations
 #    under the License.
-from swift.common.utils import get_logger, cache_from_env, \
-    split_path, config_true_value
+
+from swift.common.utils import get_logger, config_true_value
 from swift.common.swob import Request, HTTPForbidden
-from swift.common.http import HTTP_OK
-from swift.common.wsgi import make_pre_authed_request
-
-
-# Move to swift.proxy.controllers.base
-def headers_to_account_info(headers, status_int=HTTP_OK):
-    """
-    Construct a cacheable dict of account info based on response headers.
-    """
-    headers = dict(headers)
-    return {
-        'status': status_int,
-        'container_count': headers.get('x-account-container-count'),
-        'object_count': headers.get('x-account-object-count'),
-        'bytes': headers.get('x-account-bytes-used'),
-        'meta': dict((key.lower()[15:], value)
-                     for key, value in headers.iteritems()
-                     if key.lower().startswith('x-account-meta-'))
-    }
-
-
-def get_account_info(env, app, logger, recheck_account_existence):
-    """
-    Get the info structure for an account, based on env and app.
-    This is useful to middlewares.
-    """
-    cache = cache_from_env(env)
-    if not cache:
-        return None
-    (version, account, _, _) = split_path(env['PATH_INFO'], 2, 4, True)
-    cache_key = "account_locked/%s" % (account)
-    account_info = cache.get(cache_key)
-
-    if not account_info:
-        request = make_pre_authed_request(env,
-                                          'HEAD', '/%s/%s' % (version,
-                                                              account))
-        resp = request.get_response(app)
-        account_info = headers_to_account_info(
-            resp.headers, resp.status_int)
-        cache.set(cache_key,
-                  account_info,
-                  timeout=recheck_account_existence)
-    return account_info
+from swift.proxy.controllers.base import get_account_info
 
 
 class AccountAccessMiddleware(object):
@@ -72,10 +29,11 @@ class AccountAccessMiddleware(object):
         self.locked_header = conf.get('locked_header', 'locked')
         self.recheck_account_existence = conf.get('recheck_account_existence',
                                                   60)
-        default_denied_method = ("PUT", "DELETE", "POST")
-        self.denied_methods = conf.get('denied_methods', default_denied_method)
-        if self.denied_methods is str:
-            self.denied_methods = self.denied_methods.split(',')
+        denied_methods_conf = conf.get('denied_methods')
+        if denied_methods_conf and type(denied_methods_conf) is str:
+            self.denied_methods = denied_methods_conf.split(',')
+        else:
+            self.denied_methods = ("PUT", "DELETE", "POST")
 
     def deny(self, req):
         return HTTPForbidden(request=req)
@@ -83,6 +41,7 @@ class AccountAccessMiddleware(object):
     def __call__(self, env, start_response):
         req = Request(env)
 
+        # TOREMOVE: when merged
         # if we are doing a post to update the locked value then alow it.
         if req.method == 'POST':
             for header in req.headers:
@@ -93,9 +52,10 @@ class AccountAccessMiddleware(object):
         # check if we are in a method we want to disallow.
         if not req.method in self.denied_methods:
             return self.app(env, start_response)
-        account_info = get_account_info(env, self.app,
-                                        self.logger,
-                                        self.recheck_account_existence)
+
+        account_info = get_account_info(env,
+                                        self.app,
+                                        swift_source="LCK")
         if not account_info:
             return self.app(env, start_response)
 
