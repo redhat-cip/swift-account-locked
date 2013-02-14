@@ -13,6 +13,12 @@ CONF = {
 
 
 class TestAccountLocked(unittest.TestCase):
+    def assertNotRaises(self, exc, callable, *args, **kwargs):
+        try:
+            callable(*args, **kwargs)
+        except exc:
+            self.fail('%s raised' % exc)
+
     def setUp(self):
         self.user = swiftclient.client.Connection(
             CONF['auth_url'],
@@ -50,10 +56,9 @@ class TestAccountLocked(unittest.TestCase):
         admin_url, admin_token = self.admin.get_auth()
         user_url, user_token = self.user.get_auth()
         swiftclient.post_account(user_url, admin_token, {CONF['header']: "0"})
-        try:
-            self.user.put_container(container_name)
-        except swiftclient.ClientException:
-            self.fail("cannot create container")
+        self.assertNotRaises(swiftclient.ClientException,
+                             self.user.put_container,
+                             container_name)
 
     def test_fail_unlock_success(self):
         container_name = 'test_fail_upload_when_locked'
@@ -64,7 +69,6 @@ class TestAccountLocked(unittest.TestCase):
                           self.user.put_container,
                           container_name)
         swiftclient.post_account(user_url, admin_token, {CONF['header']: "0"})
-        try:
-            self.user.put_container(container_name)
-        except swiftclient.ClientException:
-            self.fail("cannot create container")
+        self.assertNotRaises(swiftclient.ClientException,
+                             self.user.put_container,
+                             container_name)
