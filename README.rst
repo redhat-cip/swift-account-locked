@@ -29,7 +29,7 @@ Install
 ::
 
    [pipeline:main]
-   pipeline = catch_errors healthcheck control_headers account_locked cache ratelimit  authtoken keystoneauth proxy-logging proxy-server
+   pipeline = catch_errors healthcheck cache ratelimit authtoken keystoneauth control_headers account_locked proxy-logging proxy-server
 
 3. Configure the *control_headers* middleware to allow the admin user to read and write the locked header but not for anyone else
 ::
@@ -67,7 +67,7 @@ gives me.
 I can then use that to update the header to locked
 ::
 
-  -$ curl -H 'X-Auth-Token: 07c31f4b9e764ebba628509d87907394' http://172.16.129.128:8080/v1/AUTH_e8f1fa83c05b4e0e8c48fac3d0a7dfeb -H 'X-Account-Meta-Locked: on'
+  -$ curl -X POST -H 'X-Auth-Token: 07c31f4b9e764ebba628509d87907394' http://172.16.129.128:8080/v1/AUTH_e8f1fa83c05b4e0e8c48fac3d0a7dfeb -H 'X-Account-Meta-Locked: on'
 
 and this effectively disallow uploading files.
 ::
